@@ -1,7 +1,7 @@
 # NVIDIA-TRAVEL (AI旅游助手)
 
 <div align="center">
-  <img src="docs/assets/logo.png" alt="NVIDIA-TRAVEL Logo" width="200"/> <!-- Placeholder for logo -->
+  <img src="logo.jpg" alt="NVIDIA-TRAVEL Logo" width="200"/> <!-- Placeholder for logo -->
   <p><em>让每一次出行更聪明、更轻松、更精彩</em></p>
 </div>
 
