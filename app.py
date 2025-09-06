@@ -33,10 +33,117 @@ load_dotenv()
 dashscope.api_key = os.environ.get("dashscope_api_key")
 
 
-qwen_client = OpenAI(
-    api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+############################################## add by akira 20250904 ##############################################
+from langgraph.checkpoint.memory import InMemorySaver
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from datetime import datetime
+
+
+#############模型api配置#######################################################
+
+#运行前需要export环境变量
+# export GAODE_API_KEY="你的高德地图key"
+# export BAILIAN_API_KEY="你的百炼key"
+
+GAODE_API_KEY = os.getenv("GAODE_API_KEY")
+if not GAODE_API_KEY:
+    raise ValueError("环境变量 GAODE_API_KEY 未设置，请配置后再运行！")
+
+BAILIAN_API_KEY = os.getenv("DASHSCOPE_API_KEY")
+if not BAILIAN_API_KEY:
+    raise ValueError("环境变量 DASHSCOPE_API_KEY 未设置，请配置后再运行！")
+
+client = MultiServerMCPClient(
+    {
+        "amap-amap-sse": {
+            "url": f"https://mcp.amap.com/sse?key={GAODE_API_KEY}",
+            "transport": "sse"
+        }
+    }   # type: ignore
 )
+
+
+llmMCP = ChatOpenAI(
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model="qwen-plus",
+    temperature=0.2,
+    api_key=BAILIAN_API_KEY  # type: ignore
+    ,streaming=True
+)
+ 
+
+async def get_weather(imput: str) -> str:
+    sys_prompt = "你是一个高德地图工具，你需要根据用户的输入，返回对应的信息"
+ 
+    checkpointer = InMemorySaver()
+    from langchain_core.messages import HumanMessage
+ 
+    try:
+        tools = await client.get_tools()
+        agent = create_react_agent(llm, tools, prompt=sys_prompt, checkpointer=checkpointer)
+        logger.info(f"Weather_server: 获取到的工具列表: {[[tool.name, tool.description] for tool in tools]}")
+        config = {
+            "configurable": {
+                "thread_id": "1"  
+            },
+            "recursion_limit": 100  # ✅ 增加到 100 步（根据需要调整）
+        }
+        async for chunk in agent.astream({"messages": [HumanMessage(content=imput)]}, config=config):
+            # 你可以在这里处理每个 chunk，比如打印、yield、写文件等
+            print(chunk)
+ 
+        return "流式输出结束"
+        # logger.info(response)
+        # logger.info(response["messages"][-1].content)
+        # # logger.info(f"Weather_server: 天气服务查询结果是：{response_content}")
+        
+        # return str(response["messages"][-1].content)
+ 
+    except Exception as e:
+        logger.error(f"Weather_server: 调用天气服务时出错: {str(e)}")
+        response = f"抱歉，天气服务调用失败: {str(e)}"
+ 
+        return response
+    
+    
+##############################################################################
+
+
+
+
+
+##################################提示提配置#####################################
+sys_prompt = """
+        你现在是一位专业的旅行规划师，你的责任是根据旅行出发地、目的地、天数、行程风格（紧凑、适中、休闲）、预算、随行人数，帮助我规划旅游行程并生成详细的旅行计划表。请你以表格的方式呈现结果。旅行计划表的表头请包含日期、地点、行程计划、交通方式、餐饮安排、住宿安排、费用估算、备注。所有表头都为必填项，请加深思考过程，严格遵守以下规则：
+
+        1. 日期请以DayN|yyyy-mm-dd为格式如Day1 1990-01-01，明确标识每天的行程,如果有出发时间，则取出发时间，否则日期需要取当前查询的最新日期。
+        2. 地点需要呈现当天所在城市，请根据日期、考虑地点的地理位置远近，严格且合理制定地点，确保行程顺畅。
+        3. 行程计划需包含位置、时间、活动，其中位置需要根据地理位置的远近进行排序。位置的数量可以根据行程风格灵活调整，如休闲则位置数量较少、紧凑则位置数量较多。时间需要按照上午、中午、晚上制定，并给出每一个位置所停留的时间（如上午10点-中午12点）。活动需要准确描述在位置发生的对应活动（如参观博物馆、游览公园、吃饭等），并需根据位置停留时间合理安排活动类型。
+        4. 交通方式需根据地点、行程计划中的每个位置的地理距离合理选择，如步行、地铁、出租车、火车、飞机等不同的交通方式，并尽可能详细说明。
+        5. 餐饮安排需包含每餐的推荐餐厅、类型（如本地特色、快餐等）、预算范围，就近选择。
+        6. 住宿安排需包含每晚的推荐酒店或住宿类型（如酒店、民宿等）、地址、预估费用，就近选择。
+        7. 费用估算需包含每天的预估总费用，并注明各项费用的细分（如交通费、餐饮费、门票费等）。
+        8. 备注中需要包括对应行程计划需要考虑到的注意事项，保持多样性，涉及饮食、文化、语言等方面的提醒。
+        9. 列出每天的天气情况，结合高德地图工具，获取对应的天气，结合每天的天气提示
+        10. 请特别考虑随行人数的信息，确保行程和住宿安排能满足所有随行人员的需求。
+        11.旅游总体费用不能超过预算。
+        
+
+        现在请你严格遵守以上规则，根据我的旅行出发地、目的地、天数、行程风格（紧凑、适中、休闲）、预算、随行人数，生成合理且详细的旅行计划表。记住你要根据我提供的旅行目的地、天数等信息以表格形式生成旅行计划表，最终答案一定是表格形式。以下是旅行的基本信息：
+        旅游出发地：{}，旅游目的地：{} ，天数：{}天 ，行程风格：{} ，预算：{}，随行人数：{}，出发时间：{}, 特殊偏好、要求：{}
+        
+"""
+##################################提示提配置#####################################
+
+
+############################################## add by akira 20250904 ##############################################
+
+
+
 
 # 初始化模型
 qwen_client = OpenAI(
@@ -787,6 +894,67 @@ def chat(chat_destination, chat_history, chat_departure, chat_days, chat_style, 
             chat_history[-1] = (information, answer)
             yield '', chat_history
 
+
+
+################################### add by akira 2025-09-06 ####################################
+async def chat_mcp(chat_destination, chat_history, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other,chat_start_date):
+    # stream_model = ChatModel(config, stream=True)
+
+    chat_start_date = datetime.fromtimestamp(chat_start_date).strftime('%Y-%m-%d %H:%M:%S')
+
+    final_query = sys_prompt.format(chat_departure, chat_destination, chat_days, chat_style, chat_budget,  chat_people, chat_other,chat_start_date)
+
+    # 将问题设为历史对话
+    chat_history.append((chat_destination, ''))
+
+
+    # 流式返回处理
+    answer = ""
+    information = '旅游出发地：{}，旅游目的地：{} ，天数：{} ，行程风格：{} ，预算：{}，随行人数：{}，出发时间：{}'.format(
+        chat_departure, chat_destination, chat_days, chat_style, chat_budget, chat_people, chat_start_date)
+
+    checkpointer = InMemorySaver()
+    from langchain_core.messages import  HumanMessage
+    
+    try:
+#        tools = asyncio.run(client.get_tools())
+        tools = await client.get_tools()
+        agent = create_react_agent(llmMCP, tools, prompt="你是一个旅行规划助手，可以调用工具查询天气、景点、酒店等。请根据用户需求合理规划行程。", checkpointer=checkpointer)
+        logger.info(f"Weather_server: 获取到的工具列表: {[[tool.name, tool.description] for tool in tools]}")
+        config = {
+            "configurable": {
+                "thread_id": "1"  
+            },
+            "recursion_limit": 100  # ✅ 增加到 100 步（根据需要调整）
+        }
+
+ 
+ # 使用 astream_events 来获取所有事件
+        
+        async for event in agent.astream_events({"messages": [HumanMessage(content=final_query)]}, config=config, version="v2"):
+            print("event:", event)
+            if event["event"] == "on_chat_model_stream":
+                print("event:", event  )
+                content = event["data"].get("chunk", {}).content
+                if content:
+                    answer += content
+                    chat_history[-1] = (information, answer)
+                    yield '', chat_history
+           #print(content, end="", flush=True)
+        
+    except Exception as e:
+        logger.error(f"Weather_server: 调用天气服务时出错: {str(e)}")
+        response = f"抱歉，天气服务调用失败: {str(e)}" 
+
+
+
+
+
+
+################################### add by akira 2025-09-06 ####################################
+
+
+
 # Gradio接口定义
 with gr.Blocks(css=css) as demo:
     html_code = html_code = """
@@ -922,8 +1090,18 @@ with gr.Blocks(css=css) as demo:
             chat_destination = gr.Textbox(label="输入旅游目的地", placeholder="请你输入想去的地方")
             gr.Examples(["合肥", "郑州", "西安", "北京", "广州", "大连","厦门","南京", "大理", "上海","成都","黄山"], chat_destination, label='目的地示例',examples_per_page= 12)
         
-        with gr.Accordion("个性化选择（天数，行程风格，预算，随行人数）", open=False):
+        #modiy by akira 2024-09-26
+        #with gr.Accordion("个性化选择（天数，行程风格，预算，随行人数）", open=False):
+        with gr.Accordion("个性化选择（天数，行程风格，预算，随行人数）", open=True):            
             with gr.Group():
+                #add by akira 2024-09-26
+                with gr.Row():  # 新增一行用于日期选择
+                    # 获取当前日期时间
+#                    current_datetime = datetime.datetime.now()
+                    # 创建DateTime组件，并设置默认值为当前日期时间
+                    chat_start_date = gr.DateTime(label="出发时间",interactive=True,elem_id="datetime-input")  # 显式设置为True（可选）   # 日期+时间选择(label="选择出发日期", value=None)  # 默认为空，用户必须选择                                    
+
+
                 with gr.Row():
                     chat_days = gr.Slider(minimum=1, maximum=10, step=1, value=3, label='旅游天数')
                     chat_style = gr.Radio(choices=['紧凑', '适中', '休闲'], value='适中', label='行程风格',elem_id="button")
@@ -933,8 +1111,12 @@ with gr.Blocks(css=css) as demo:
                     chat_other = gr.Textbox(label="特殊偏好、要求(可写无)", placeholder="请你特殊偏好、要求")
         llm_submit_tab = gr.Button("发送", visible=True,elem_id="button")
         chatbot = gr.Chatbot([], elem_id="chat-box", label="聊天窗口", height=600)
-        llm_submit_tab.click(fn=chat, inputs=[chat_destination, chatbot, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other], outputs=[ chat_destination,chatbot])
+
+        #modify by akira 2024-09-26
+        #llm_submit_tab.click(fn=chat, inputs=[chat_destination, chatbot, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other], outputs=[ chat_destination,chatbot])
+        llm_submit_tab.click(fn=chat_mcp, inputs=[chat_destination, chatbot, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other,chat_start_date], outputs=[ chat_destination,chatbot])
     
+
         # 保留原有的函数定义
     def respond(message, chat_history, use_kb):
         response = process_question(message, use_kb)
@@ -1043,6 +1225,9 @@ with gr.Blocks(css=css) as demo:
 
 
 if __name__ == "__main__":
-    demo.queue().launch(share=True)
+    #modify by akira 2024-09-26
+    #demo.queue().launch(share=True)
+    demo.queue().launch(server_name="0.0.0.0",share=True)
+    
 
 
