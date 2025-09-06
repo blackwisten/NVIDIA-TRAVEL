@@ -74,20 +74,16 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
 
 3.  **配置环境变量**:
     ```bash
-    # Linux/macOS
-    export DASHSCOPE_API_KEY=你的阿里云API密钥
-
-    # Windows CMD
-    set DASHSCOPE_API_KEY=你的阿里云API密钥
-
-    # Windows PowerShell
-    $env:DASHSCOPE_API_KEY="你的阿里云API密钥"
+    Weather_APP_KEY=您的和风天气API
+    amap_key=您的高德地图API
+    dashscope_api_key=您的阿里云百炼平台API
+    TAVILY_API_KEY=您的tavily API
     ```
-    *(请将 `你的阿里云API密钥` 替换为实际从阿里云获取的API Key)*
+    *(请将 `您的xxxAPI密钥` 替换为实际从阿里云获取的API Key)*
 
 4.  **启动服务**:
     ```bash
-    python app.py
+    python3 app.py
     ```
 
 5.  **访问地址**:
