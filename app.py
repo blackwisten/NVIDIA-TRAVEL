@@ -3,6 +3,9 @@ import gradio as gr
 import requests
 from gradio.components import HTML 
 import uuid
+# from sparkai.core.messages import ChatMessage, AIMessageChunk
+# from dwspark.config import Config
+# from dwspark.models import ChatModel, ImageUnderstanding, Text2Audio, Audio2Text, EmbeddingModel,Text2Img
 from PIL import Image
 import io
 import base64
@@ -27,11 +30,15 @@ from dashscope import Generation
 import dashscope
 from pydub import AudioSegment
 from openai import OpenAI
-from dotenv import load_dotenv
+# 加载讯飞的api配置
+# SPARKAI_APP_ID = os.environ.get("SPARKAI_APP_ID")
+# SPARKAI_API_SECRET = os.environ.get("SPARKAI_API_SECRET")
+# SPARKAI_API_KEY = os.environ.get("SPARKAI_API_KEY")
 
-load_dotenv()
+
+# config = Config(SPARKAI_APP_ID, SPARKAI_API_KEY, SPARKAI_API_SECRET)
+
 dashscope.api_key = os.environ.get("dashscope_api_key")
-
 
 qwen_client = OpenAI(
     api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
@@ -43,7 +50,13 @@ qwen_client = OpenAI(
     api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
+# iu = ImageUnderstanding(config)
+# t2a = Text2Audio(config)
+# a2t = Audio2Text(config)
+# t2i = Text2Img(config)
+# 临时存储目录
 TEMP_IMAGE_DIR = "/tmp/sparkai_images/"
+#AUDIO_TEMP_DIR = "/tmp/sparkai_audios/"
 TEMP_AUDIO_DIR = "./static"
 
 style_options = ["朋友圈", "小红书", "微博", "抖音"]
@@ -311,6 +324,17 @@ def get_weather_forecast(location_id,api_key):
         return None  
 api_key = os.environ.get("api_key")
 
+from openai import OpenAI
+# client = OpenAI(
+#         api_key=api_key,
+#         base_url="https://api.deepseek.com"
+# )
+
+# client = OpenAI(
+#         api_key='',
+#         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+# )
+
 amap_key = os.environ.get("amap_key")
 
 def get_completion(messages, model="qwen-plus"):
@@ -467,6 +491,7 @@ def llm(query, history=[], user_stop_words=[]):
         return str(e)
 
 # Travily 搜索引擎
+os.environ['TAVILY_API_KEY'] = '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'
 tavily = TavilySearchResults(max_results=5)
 tavily.description = '这是一个类似谷歌和百度的搜索引擎，搜索知识、天气、股票、电影、小说、百科等都是支持的哦，如果你不确定就应该搜索一下，谢谢！'
 
@@ -789,7 +814,7 @@ def chat(chat_destination, chat_history, chat_departure, chat_days, chat_style, 
 
 # Gradio接口定义
 with gr.Blocks(css=css) as demo:
-    html_code = html_code = """
+    html_code = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -843,6 +868,9 @@ with gr.Blocks(css=css) as demo:
             max-width: 800px;
             margin: 0 auto;
             line-height: 1.6;
+            word-wrap: break-word; /* 关键：允许长单词换行 */
+            white-space: pre-line; /* 保留换行符 */
+            text-align: center; /* 居中对齐 */
         }
         .features-grid {
             display: grid;
@@ -877,6 +905,48 @@ with gr.Blocks(css=css) as demo:
             color: #666;
             font-size: 0.9em;
             line-height: 1.5;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .header-section {
+                padding: 30px 15px;
+            }
+            .title-main {
+                font-size: 1.8em;
+            }
+            .subtitle {
+                font-size: 1em;
+                padding: 0 15px;
+            }
+            .features-grid {
+                grid-template-columns: 1fr;
+                padding: 20px;
+                gap: 15px;
+            }
+            .feature-card {
+                padding: 20px;
+            }
+            .feature-icon {
+                font-size: 2em;
+            }
+            .logo-img {
+                max-width: 150px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .title-main {
+                font-size: 1.5em;
+            }
+            .subtitle {
+                font-size: 0.9em;
+            }
+            .feature-card {
+                padding: 15px;
+            }
         }
     </style>
 </head>
@@ -884,7 +954,6 @@ with gr.Blocks(css=css) as demo:
     <div class="main-container">
         <div class="header-section">
             <div class="logo-container">
-                <!-- 这里可以更换为你想要的Logo图片 -->
                 <img id="logo-img" src="https://img.picui.cn/free/2024/09/25/66f3cdc149a78.png" alt="NVIDIA-TRAVEL Logo" class="logo-img">
             </div>
             <h1 class="title-main">😀 欢迎来到"NVIDIA-TRAVEL"</h1>
@@ -918,9 +987,16 @@ with gr.Blocks(css=css) as demo:
         # 旅行规划助手的原有代码保持不变
         with gr.Row():
             chat_departure = gr.Textbox(label="输入旅游出发地", placeholder="请你输入出发地")
-            gr.Examples(["合肥", "郑州", "西安", "北京", "广州", "大连","厦门","南京", "大理", "上海","成都","黄山"], chat_departure, label='出发地示例',examples_per_page= 12)
+            with gr.Row():
+                gr.Examples(
+                    ["合肥", "郑州", "西安", "北京"],
+                    inputs=chat_departure,
+                    label='出发地推荐',
+                    examples_per_page=12
+                )
             chat_destination = gr.Textbox(label="输入旅游目的地", placeholder="请你输入想去的地方")
-            gr.Examples(["合肥", "郑州", "西安", "北京", "广州", "大连","厦门","南京", "大理", "上海","成都","黄山"], chat_destination, label='目的地示例',examples_per_page= 12)
+            with gr.Row():
+                gr.Examples(["合肥", "郑州", "西安", "北京"], chat_destination, label='目的地推荐',examples_per_page= 12)
         
         with gr.Accordion("个性化选择（天数，行程风格，预算，随行人数）", open=False):
             with gr.Group():
@@ -952,7 +1028,7 @@ with gr.Blocks(css=css) as demo:
                     clear_button = gr.Button("清除对话", elem_id="button")
         
                 # 问题样例
-                gr.Examples(["我想去香港玩，你有什么推荐的吗？","在杭州，哪些家餐馆可以推荐去的？","我计划暑假带家人去云南旅游，请问有哪些必游的自然风光和民族文化景点？","下个月我将在西安，想了解秦始皇兵马俑开通时间以及交通信息","第一次去西藏旅游，需要注意哪些高原反应的预防措施？","去三亚度假，想要住海景酒店，性价比高的选择有哪些？","去澳门旅游的最佳时间是什么时候？","计划一次五天四夜的西安深度游，怎样安排行程比较合理，能覆盖主要景点？"], msg)
+                gr.Examples(["我想去香港玩，你有什么推荐的吗？","在杭州，哪些家餐馆可以推荐去的？","我计划暑假带家人去云南旅游，请问有哪些必游的自然风光和民族文化景点？"], msg)
         
             with gr.Column():
                 chatbot_qa = gr.Chatbot(label="聊天记录",height=521)
@@ -960,7 +1036,7 @@ with gr.Blocks(css=css) as demo:
         clear_button.click(clear_history, chatbot_qa, chatbot_qa)        
 
     # Weather API Key
-    Weather_APP_KEY = os.getenv('Weather_APP_KEY')
+    Weather_APP_KEY = '797ab5e76cdf458b82b1283e100b9a5b'
     
     def weather_process(location):
         api_key = Weather_APP_KEY  # 替换成你的API密钥  
