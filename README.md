@@ -97,22 +97,22 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
 
 1.  **项目首页**
 <div align="center">
-  <img src="pics/show4.png" width="200"/> 
+  <img src="pics/show4.png"/> 
 </div>
 
 2.  **旅行助手旅游规划**
 <div align="center">
-  <img src="pics/show1.png" width="200"/> 
+  <img src="pics/show1.png"/> 
 </div>
 
 3.  **旅游助手旅游路线规划**
 <div align="center">
-  <img src="pics/show3.jpg" width="200"/> 
+  <img src="pics/show3.jpg"/> 
 </div>
 
 4.  **旅行助手旅游规划**
 <div align="center">
-  <img src="pics/show4.png" width="200"/> 
+  <img src="pics/show4.png"/> 
 </div>
 
 ## 🙏 致谢
