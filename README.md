@@ -1,7 +1,7 @@
 # NVIDIA-TRAVEL (AI旅游助手)
 
 <div align="center">
-  <img src="logo.jpg" alt="NVIDIA-TRAVEL Logo" width="200"/> <!-- Placeholder for logo -->
+  <img src="pics/logo.jpg" alt="NVIDIA-TRAVEL Logo" width="200"/> <!-- Placeholder for logo -->
   <p><em>让每一次出行更聪明、更轻松、更精彩</em></p>
 </div>
 
@@ -95,7 +95,25 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
 
 ## 📸 案例展示
 
-*(在此处添加项目运行截图、生成的行程计划示例、分享文案示例等)*
+1.  **项目首页**
+<div align="center">
+  <img src="pics/show4.png" width="200"/> 
+</div>
+
+2.  **旅行助手旅游规划**
+<div align="center">
+  <img src="pics/show1.png" width="200"/> 
+</div>
+
+3.  **旅游助手旅游路线规划**
+<div align="center">
+  <img src="pics/show3.jpg" width="200"/> 
+</div>
+
+4.  **旅行助手旅游规划**
+<div align="center">
+  <img src="pics/show4.png" width="200"/> 
+</div>
 
 ## 🙏 致谢
 
