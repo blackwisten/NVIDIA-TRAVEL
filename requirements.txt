@@ -27,3 +27,4 @@ rank_bm25
 dashscope
 gradio
 FlagEmbedding
+nvidia-nat[all]
