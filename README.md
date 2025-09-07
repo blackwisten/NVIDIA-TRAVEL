@@ -68,18 +68,17 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
     ```bash
     # 或者使用uv安装
     uv venv --python 3.12.0
-    source .venv/bin/activate(Linux/macOS)或.venv\Scripts\activate(Windows)
+    source .venv/bin/activate (Linux/macOS) 或 .venv\Scripts\activate (Windows)
     uv pip install -r requirements.txt
     ```
 
 3.  **配置环境变量**:
-    ```bash
-    #请在.env文件中配置
-    Weather_APP_KEY=您的和风天气API
-    amap_key=您的高德地图API
-    dashscope_api_key=您的阿里云百炼平台API
-    TAVILY_API_KEY=您的tavily API
-    #(请将 `您的xxxAPI密钥` 替换为实际从阿里云获取的API Key)
+    ```bash .env
+    Weather_APP_KEY=您的和风天气API密钥
+    amap_key=您的高德地图API密钥
+    dashscope_api_key=您的阿里云百炼平台API密钥
+    TAVILY_API_KEY=您的tavily API密钥
+    #(请将”您的xxxAPI密钥“替换为实际从阿里云获取的API Key)
     ```
 
 4.  **启动服务**:
@@ -105,4 +104,4 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
 
 ## 📄 许可证
 
-*(请在此处添加项目的许可证信息，例如 MIT, Apache 2.0 等)*
+遵循木兰宽松许可证（第二版）

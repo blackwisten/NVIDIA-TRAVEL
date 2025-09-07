@@ -1,0 +1,7 @@
+.git
+.gitattributes
+.env
+dataset/
+__pycache__/
+*.pyc
+
