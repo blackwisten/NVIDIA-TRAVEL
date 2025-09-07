@@ -57,7 +57,7 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
     cd nvidia-travel
     ```
 
-2.  **安装依赖**:
+2.  **手动安装依赖**:
     ```bash
     # 使用venv创建虚拟环境
     python -m venv venv
@@ -73,7 +73,8 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
     ```
 
 3.  **配置环境变量**:
-    ```bash .env
+    ```bash 
+    #在.env中操作
     Weather_APP_KEY=您的和风天气API密钥
     amap_key=您的高德地图API密钥
     dashscope_api_key=您的阿里云百炼平台API密钥
@@ -85,7 +86,10 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
     ```bash
     python3 app.py
     ```
-
+    ```bash
+    #或者用docker一键部署（不需要前面创建虚拟环境并pip）
+    docker-compose up -d
+    ```
 5.  **访问地址**:
     在浏览器中打开 `http://127.0.0.1:7860` (默认Gradio端口) 或根据代码配置的端口访问。
 
