@@ -1,7 +1,7 @@
 # NVIDIA-TRAVEL (AI旅游助手)
 
 <div align="center">
-  <img src="docs/assets/logo.png" alt="NVIDIA-TRAVEL Logo" width="200"/> <!-- Placeholder for logo -->
+  <img src="logo.jpg" alt="NVIDIA-TRAVEL Logo" width="200"/> <!-- Placeholder for logo -->
   <p><em>让每一次出行更聪明、更轻松、更精彩</em></p>
 </div>
 
@@ -57,7 +57,7 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
     cd nvidia-travel
     ```
 
-2.  **安装依赖**:
+2.  **手动安装依赖**:
     ```bash
     # 使用venv创建虚拟环境
     python -m venv venv
@@ -68,25 +68,28 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
     ```bash
     # 或者使用uv安装
     uv venv --python 3.12.0
-    source .venv/bin/activate(Linux/macOS)或.venv\Scripts\activate(Windows)
+    source .venv/bin/activate (Linux/macOS) 或 .venv\Scripts\activate (Windows)
     uv pip install -r requirements.txt
     ```
 
 3.  **配置环境变量**:
-    ```bash
-    #请在.env文件中配置
-    Weather_APP_KEY=您的和风天气API
-    amap_key=您的高德地图API
-    dashscope_api_key=您的阿里云百炼平台API
-    TAVILY_API_KEY=您的tavily API
-    #(请将 `您的xxxAPI密钥` 替换为实际从阿里云获取的API Key)
+    ```bash 
+    #在.env中操作
+    Weather_APP_KEY=您的和风天气API密钥
+    amap_key=您的高德地图API密钥
+    dashscope_api_key=您的阿里云百炼平台API密钥
+    TAVILY_API_KEY=您的tavily API密钥
+    #(请将”您的xxxAPI密钥“替换为实际从阿里云获取的API Key)
     ```
 
 4.  **启动服务**:
     ```bash
     python3 app.py
     ```
-
+    ```bash
+    #或者用docker一键部署（不需要前面创建虚拟环境并pip）
+    docker-compose up -d
+    ```
 5.  **访问地址**:
     在浏览器中打开 `http://127.0.0.1:7860` (默认Gradio端口) 或根据代码配置的端口访问。
 
@@ -105,4 +108,4 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
 
 ## 📄 许可证
 
-*(请在此处添加项目的许可证信息，例如 MIT, Apache 2.0 等)*
+遵循木兰宽松许可证（第二版）

@@ -1,0 +1,14 @@
+
+services:
+  app:
+    build: .
+    container_name: nvidia_travel
+    ports:
+      - "7860:7860"
+    env_file:
+      - .env
+
+    volumes:
+      - ./dataset:/app/dataset
+    restart: unless-stopped
+    working_dir: /app
