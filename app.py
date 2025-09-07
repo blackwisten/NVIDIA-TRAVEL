@@ -3,7 +3,6 @@ import gradio as gr
 import requests
 from gradio.components import HTML 
 import uuid
-
 from PIL import Image
 import io
 import base64
@@ -32,6 +31,22 @@ import os, re, uuid as _uuid
 import html
 from urllib.parse import quote
 from tavily_mcp_server import TavilyMCPServer
+import asyncio
+from nat.runtime.loader import load_workflow
+from nat.utils.type_utils import StrPath
+from dotenv import load_dotenv
+from langgraph.checkpoint.memory import InMemorySaver
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from datetime import datetime
+load_dotenv()
+
+AIQ_WORKFLOW_CFG = os.environ.get(
+    "AIQ_WORKFLOW_CFG",
+    "/data/lxm/mul-agent/hackathon_aiqtoolkit-main/NeMo-Agent-Toolkit/examples/agents/react/configs/config-reasoning.yml",
+)
+
 
 dashscope.api_key = os.environ.get("dashscope_api_key")
 os.environ["amap_key"] = "3cf27a51685ddf02dfb220fe93c036af"
@@ -40,12 +55,57 @@ os.environ["AMAP_JS_SEC"] = "3f96ffb6ef836e956a585f9eee58ee13"
 os.environ['TAVILY_API_KEY'] = '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'
 os.environ['PEXELS_API_KEY']="ZRRsieLqDKsRxzxNH97mN7NlGgEoIDFSzdYKB42S4Tzfc8BWtVzKpWz3"
 PEXELS_API_KEY=os.environ.get("PEXELS_API_KEY")
-
+Weather_APP_KEY = '797ab5e76cdf458b82b1283e100b9a5b'
+GAODE_API_KEY=os.environ.get("amap_key")
+BAILIAN_API_KEY=os.environ.get("DASHSCOPE_API_KEY", "")
 # 初始化模型
 qwen_client = OpenAI(
     api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
+
+client = MultiServerMCPClient(
+    {
+        "amap-amap-sse": {
+            "url": f"https://mcp.amap.com/sse?key={GAODE_API_KEY}",
+            "transport": "sse"
+        }
+    }   # type: ignore
+)
+
+
+llmMCP = ChatOpenAI(
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model="qwen-plus",
+    temperature=0.2,
+    api_key=BAILIAN_API_KEY  # type: ignore
+    ,streaming=True
+)
+
+def aiq_run_workflow(config_file: StrPath, input_str: str) -> str:
+    """
+    以“同步”的方式运行 NAT 工作流，方便在 Gradio 的按钮点击回调里直接调用。
+    """
+    async def _go() -> str:
+        async with load_workflow(config_file) as workflow:
+            async with workflow.run(input_str) as runner:
+                return await runner.result(to_type=str)
+    # gradio 的回调在线程里跑，通常没有事件循环，直接 asyncio.run 安全简洁
+    return asyncio.run(_go())
+
+def process_network_aiq(query: str, cfg_path: str):
+    """
+    Gradio 回调：用 AIQ 工作流做一次联网搜索。
+    """
+    try:
+        text = aiq_run_workflow(cfg_path or AIQ_WORKFLOW_CFG, query.strip())
+        # 如果你右侧已有“图文卡片区域”（cards_html），可以把 text 也喂给它：
+        # cards = build_info_cards(query, text)    # 你已有这个函数
+        # return text, cards
+        return text
+    except Exception as e:
+        return f"[AIQ] 运行失败：{e}"
+
 
 #RAG所需函数
 rerank_path = './model/rerank_model'
@@ -334,7 +394,8 @@ def outfit_reco_by_weather(temp_c: float, cond_text: str, city: str=""):
 api_key = os.environ.get("api_key")
 amap_key = os.environ.get("amap_key")
 
-def get_completion(messages, model="qwen-plus"):
+def get_completion(messages, model="qwen3-max-preview"):
+    print(messages)
     response = qwen_client.chat.completions.create(
         model=model,
         messages=messages,
@@ -634,8 +695,6 @@ def build_amap_html_for_one_day_interactive(points, day_title="Day", color="#006
 </div>
 '''
 
-
-
 def build_multiday_amap_html_interactive(day_points):
     palette = ["#E74C3C","#3498DB","#2ECC71","#F1C40F","#9B59B6","#1ABC9C","#E67E22","#2C3E50"]
     parts = ['<div style="display:flex;flex-direction:column;gap:16px">']
@@ -672,7 +731,7 @@ def search_nearby_pois(longitude, latitude, keyword):
             distance = result["pois"][i]["distance"]
             ans += f"{name}\n{address}\n距离：{distance}米\n\n"
     return ans
-    
+
 def process_request(prompt):
     messages = [
         {"role": "system", "content": "你是一个地图通，你可以找到任何地址。"},
@@ -727,7 +786,7 @@ def llm(query, history=[], user_stop_words=[]):
         messages.append({'role': 'user', 'content': query})
 
         response = qwen_client.chat.completions.create(
-            model = "qwen-plus",  # 或 qwen-turbo
+            model = "qwen3-max-preview",  # 或 qwen-turbo
             messages = messages,
             temperature = 0.7,
             stream = True
@@ -922,7 +981,6 @@ def render_cards_html(entity_name: str, poi: dict, detail: dict, images: list, s
     if closed_line: bullets.append(f"<div class='meta'>🚪 闭馆：{html.escape(closed_line)}</div>")
     if price:  bullets.append(f"<div class='meta'>💳 票价：{html.escape(str(price))}</div>")
     if rating: bullets.append(f"<div class='meta'>⭐ 评分：{html.escape(str(rating))}</div>")
-    if tel:    bullets.append(f"<div class='meta'>☎️ 电话：{html.escape(tel)}</div>")
 
     btns = []
     if amap_link: btns.append(f"<a target='_blank' href='{html.escape(amap_link)}'>📱 打开高德地图</a>")
@@ -1072,10 +1130,6 @@ def build_info_cards(query_text: str, search_text: str):
 
 
 
-
-
-
-
 # Travily 搜索引擎
 tavily = TavilyMCPTool(
     max_results=5,
@@ -1183,29 +1237,200 @@ def process_network(query):
     success, result, my_history = agent_execute_with_retry(query, chat_history=my_history)
     return result
 
-
-css="""
-#col-left {
-    margin: 0 auto;
-    max-width: 430px;
-}
-#col-mid {
-    margin: 0 auto;
-    max-width: 430px;
-}
-#col-right {
-    margin: 0 auto;
-    max-width: 430px;
-}
-#col-showcase {
-    margin: 0 auto;
-    max-width: 1100px;
-}
-#button {
-    color: blue;
+css = """
+/* 全局样式 */
+body {
+    font-family: 'Roboto', 'Microsoft YaHei', sans-serif !important;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
 }
 
+/* 主容器 */
+#main-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+/* 输入框样式 */
+.input-field {
+    border: 2px solid #e0e0e0 !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+    transition: all 0.3s ease !important;
+    background: white !important;
+}
+
+.input-field:focus {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+}
+
+/* 按钮样式 */
+.button-primary {
+    background: linear-gradient(45deg, #667eea, #764ba2) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 600 !important;
+    padding: 12px 24px !important;
+    border-radius: 25px !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important;
+}
+
+.button-primary:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.2) !important;
+}
+
+/* 聊天框样式 */
+.chatbot-container {
+    border: 2px solid #e0e0e0 !important;
+    border-radius: 15px !important;
+    background: #fafafa !important;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.05) !important;
+}
+
+/* 滑块样式 */
+.slider-container {
+    background: #f8f9fa !important;
+    border-radius: 12px !important;
+    padding: 15px !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important;
+}
+
+/* 单选按钮样式 */
+.radio-group {
+    background: #f8f9fa !important;
+    border-radius: 12px !important;
+    padding: 15px !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important;
+}
+
+/* 手风琴样式 */
+.accordion-container {
+    background: white !important;
+    border-radius: 15px !important;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.08) !important;
+    border: 1px solid #e0e0e0 !important;
+}
+
+/* 表格样式 */
+table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin: 20px 0 !important;
+    background: white !important;
+    border-radius: 10px !important;
+    overflow: hidden !important;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.08) !important;
+}
+
+
+th {
+    background: linear-gradient(135deg, #667eea, #764ba2) !important;
+    color: white !important;
+    padding: 15px !important;
+    text-align: center !important;
+    font-weight: 600 !important;
+}
+
+td {
+    padding: 12px !important;
+    text-align: center !important;
+    border-bottom: 1px solid #e0e0e0 !important;
+}
+
+tr:nth-child(even) {
+    background-color: #f8f9fa !important;
+}
+
+tr:hover {
+    background-color: #e3f2fd !important;
+    transition: background-color 0.3s ease !important;
+}
+
+/* 示例容器样式 */
+.example-container {
+    background: #e3f2fd !important;
+    border-radius: 10px !important;
+    padding: 15px !important;
+    margin: 15px 0 !important;
+    border: 1px solid #bbdefb !important;
+}
+
+.example-item {
+    background: white !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    margin: 5px !important;
+    display: inline-block !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    border: 1px solid #e0e0e0 !important;
+}
+
+.example-item:hover {
+    background: #2196f3 !important;
+    color: white !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.1) !important;
+}
+
+/* 标签页样式 */
+.tab-nav {
+    background: white !important;
+    border-radius: 15px 15px 0 0 !important;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.08) !important;
+}
+
+.tab-item {
+    padding: 15px 25px !important;
+    font-weight: 500 !important;
+    transition: all 0.3s ease !important;
+}
+
+.tab-item:hover {
+    background: #f0f4ff !important;
+}
+
+.tab-item.selected {
+    background: linear-gradient(135deg, #667eea, #764ba2) !important;
+    color: white !important;
+}
+
+/* 列布局样式 */
+.column {
+    background: white !important;
+    border-radius: 15px !important;
+    padding: 20px !important;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.08) !important;
+    border: 1px solid #e0e0e0 !important;
+}
 """
+
+# css="""
+# #col-left {
+#     margin: 0 auto;
+#     max-width: 430px;
+# }
+# #col-mid {
+#     margin: 0 auto;
+#     max-width: 430px;
+# }
+# #col-right {
+#     margin: 0 auto;
+#     max-width: 430px;
+# }
+# #col-showcase {
+#     margin: 0 auto;
+#     max-width: 1100px;
+# }
+# #button {
+#     color: blue;
+# }
+
+# """
 
 # 旅行规划师功能
 
@@ -1227,7 +1452,76 @@ prompt = """你现在是一位专业的旅行规划师，你的责任是根据�
 
 """
 
-def chat(chat_destination, chat_history, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other):
+sys_prompt = """
+你现在是一位专业的旅行规划师，你的责任是根据旅行出发地、目的地、天数、行程风格（紧凑、适中、休闲）、预算、随行人数，帮助我规划旅游行程并生成详细的旅行计划表。请你以表格的方式呈现结果。旅行计划表的表头请包含日期、地点、行程计划、交通方式、餐饮安排、住宿安排、费用估算、备注。所有表头都为必填项，请加深思考过程，严格遵守以下规则：
+
+1. 日期请以DayN|yyyy-mm-dd为格式如Day1 1990-01-01，明确标识每天的行程,如果有出发时间，则取出发时间，否则日期需要取当前查询的最新日期。
+2. 地点需要呈现当天所在城市，请根据日期、考虑地点的地理位置远近，严格且合理制定地点，确保行程顺畅。
+3. 行程计划需包含位置、时间、活动，其中位置需要根据地理位置的远近进行排序。位置的数量可以根据行程风格灵活调整，如休闲则位置数量较少、紧凑则位置数量较多。时间需要按照上午、中午、晚上制定，并给出每一个位置所停留的时间（如上午10点-中午12点）。活动需要准确描述在位置发生的对应活动（如参观博物馆、游览公园、吃饭等），并需根据位置停留时间合理安排活动类型。
+4. 交通方式需根据地点、行程计划中的每个位置的地理距离合理选择，如步行、地铁、出租车、火车、飞机等不同的交通方式，并尽可能详细说明。
+5. 餐饮安排需包含每餐的推荐餐厅、类型（如本地特色、快餐等）、预算范围，就近选择。
+6. 住宿安排需包含每晚的推荐酒店或住宿类型（如酒店、民宿等）、地址、预估费用，就近选择。
+7. 费用估算需包含每天的预估总费用，并注明各项费用的细分（如交通费、餐饮费、门票费等）。
+8. 备注中需要包括对应行程计划需要考虑到的注意事项，保持多样性，涉及饮食、文化、语言等方面的提醒。
+9. 列出每天的天气情况，结合高德地图工具，获取对应的天气，结合每天的天气提示
+10. 请特别考虑随行人数的信息，确保行程和住宿安排能满足所有随行人员的需求。
+11.旅游总体费用不能超过预算。
+
+
+现在请你严格遵守以上规则，根据我的旅行出发地、目的地、天数、行程风格（紧凑、适中、休闲）、预算、随行人数，生成合理且详细的旅行计划表。记住你要根据我提供的旅行目的地、天数等信息以表格形式生成旅行计划表，最终答案一定是表格形式。以下是旅行的基本信息：
+旅游出发地：{}，旅游目的地：{} ，天数：{}天 ，行程风格：{} ，预算：{}，随行人数：{}，出发时间：{}, 特殊偏好、要求：{}
+
+"""
+# def chat(chat_destination, chat_history, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other):
+    
+#     ROUTE_JSON_SUFFIX = """
+#     在表格之后，另起一行，仅输出一段 JSON（不要解释）：
+#     {
+#     "route": [
+#         {"day":"Day1","city":"<当天城市>","stops":["<第1站>","<第2站>","..."]},
+#         {"day":"Day2","city":"<当天城市>","stops":["..."]}
+#     ]
+#     }
+#     注意：stops 用“可被地图识别的地名/POI”，如“外滩”“上海站”“南京路步行街”等。
+#     """
+
+#     final_query = prompt.format(
+#         chat_departure, chat_destination, chat_days, chat_style, chat_budget, chat_people, chat_other
+#     ) + ROUTE_JSON_SUFFIX
+#     chat_history.append((chat_destination, ""))
+
+#     response = qwen_client.chat.completions.create(
+#         model="qwen-plus",
+#         messages=[{"role": "user", "content": final_query}],
+#         stream=True,
+#         temperature=0.7
+#     )
+
+#     answer = ""
+#     information = '旅游出发地：{}，旅游目的地：{} ，天数：{} ，行程风格：{} ，预算：{}，随行人数：{}'.format(
+#         chat_departure, chat_destination, chat_days, chat_style, chat_budget, chat_people
+#     )
+
+#     # —— 流式把文本推给聊天窗口
+#     for chunk in response:
+#         if chunk.choices[0].delta.content:
+#             answer += chunk.choices[0].delta.content
+#             chat_history[-1] = (information, answer)
+#             # 暂时不给地图（第三个输出留空）
+#             yield "", chat_history, ""
+
+#     # —— 流式结束后：尝试解析路线 JSON → 地理编码 → 生成静态地图
+#     map_html = "<div style='color:#888'>未识别到行程 JSON（\"route\"），暂无法绘制地图。</div>"
+#     route_list = extract_route_json(answer)
+#     map_html = "<div style='color:#888'>未识别到行程 JSON（\"route\"）。</div>"
+#     if route_list:
+#         day_points = geocode_stops_by_day(route_list, chat_destination or "")
+#         map_html = build_multiday_amap_html_interactive(day_points)
+
+#     yield "", chat_history, map_html
+
+async def chat(chat_destination, chat_history, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other,chat_start_date):
+    # stream_model = ChatModel(config, stream=True)
     ROUTE_JSON_SUFFIX = """
     在表格之后，另起一行，仅输出一段 JSON（不要解释）：
     {
@@ -1238,34 +1532,60 @@ def chat(chat_destination, chat_history, chat_departure, chat_days, chat_style, 
     }
     注意：stops 用“可被地图识别的地名/POI”，如“外滩”“上海站”“南京路步行街”等。
     """
+    chat_start_date = datetime.fromtimestamp(chat_start_date).strftime('%Y-%m-%d %H:%M:%S')
 
-    final_query = prompt.format(
-        chat_departure, chat_destination, chat_days, chat_style, chat_budget, chat_people, chat_other
-    ) + ROUTE_JSON_SUFFIX
-    chat_history.append((chat_destination, ""))
+    final_query = sys_prompt.format(chat_departure, chat_destination, chat_days, chat_style, chat_budget,  chat_people, chat_other,chat_start_date) + ROUTE_JSON_SUFFIX
 
-    response = qwen_client.chat.completions.create(
-        model="qwen-plus",
-        messages=[{"role": "user", "content": final_query}],
-        stream=True,
-        temperature=0.7
-    )
+    # 将问题设为历史对话
+    chat_history.append((chat_destination, ''))
 
+    # 流式返回处理
     answer = ""
-    information = '旅游出发地：{}，旅游目的地：{} ，天数：{} ，行程风格：{} ，预算：{}，随行人数：{}'.format(
-        chat_departure, chat_destination, chat_days, chat_style, chat_budget, chat_people
-    )
+    information = '旅游出发地：{}，旅游目的地：{} ，天数：{} ，行程风格：{} ，预算：{}，随行人数：{}，出发时间：{}'.format(
+        chat_departure, chat_destination, chat_days, chat_style, chat_budget, chat_people, chat_start_date)
 
-    # —— 流式把文本推给聊天窗口
-    for chunk in response:
-        if chunk.choices[0].delta.content:
-            answer += chunk.choices[0].delta.content
-            chat_history[-1] = (information, answer)
-            # 暂时不给地图（第三个输出留空）
-            yield "", chat_history, ""
+    checkpointer = InMemorySaver()
+    from langchain_core.messages import  HumanMessage
+    
+    try:
+#        tools = asyncio.run(client.get_tools())
+        tools = await client.get_tools()
+        agent = create_react_agent(llmMCP, tools, prompt=final_query, checkpointer=checkpointer)
+        logger.info(f"Weather_server: 获取到的工具列表: {[[tool.name, tool.description] for tool in tools]}")
+        config = {
+            "configurable": {
+                "thread_id": "1"  
+            },
+            "recursion_limit": 100  # ✅ 增加到 100 步（根据需要调整）
+        }
 
+ 
+ # 使用 astream_events 来获取所有事件
+        
+        async for event in agent.astream_events({"messages": [HumanMessage(content=final_query)]}, config=config, version="v2"):
+            # print("event:", event)
+            if event["event"] == "on_chat_model_stream":
+                # print("event:", event  )
+                content = event["data"].get("chunk", {}).content
+                if content:
+                    answer += content
+                    chat_history[-1] = (information, answer)
+                    yield "", chat_history, ""
+           #print(content, end="", flush=True)
+        
+        # —— 流式把文本推给聊天窗口
+        # for chunk in response:
+        #     if chunk.choices[0].delta.content:
+        #         answer += chunk.choices[0].delta.content
+        #         chat_history[-1] = (information, answer)
+        #         # 暂时不给地图（第三个输出留空）
+        #         yield "", chat_history, ""
+        
+    except Exception as e:
+        logger.error(f"Weather_server: 调用天气服务时出错: {str(e)}")
+        response = f"抱歉，天气服务调用失败: {str(e)}"
+    
     # —— 流式结束后：尝试解析路线 JSON → 地理编码 → 生成静态地图
-    map_html = "<div style='color:#888'>未识别到行程 JSON（\"route\"），暂无法绘制地图。</div>"
     route_list = extract_route_json(answer)
     map_html = "<div style='color:#888'>未识别到行程 JSON（\"route\"）。</div>"
     if route_list:
@@ -1275,9 +1595,8 @@ def chat(chat_destination, chat_history, chat_departure, chat_days, chat_style, 
     yield "", chat_history, map_html
 
 # Gradio接口定义
-with gr.Blocks(css=css) as demo:
-    html_code = """
-     <!DOCTYPE html>
+"""
+    <!DOCTYPE html>
         <html lang="zh-CN">        <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1324,6 +1643,175 @@ with gr.Blocks(css=css) as demo:
             </div>
     </body>
 """
+
+with gr.Blocks(css=css) as demo:
+    html_code = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            text-align: center;
+            color: white;
+        }
+        .logo-container {
+            margin-bottom: 20px;
+        }
+        .logo-img {
+            max-width: 200px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+        .logo-img:hover {
+            transform: scale(1.05);
+        }
+        .title-main {
+            font-size: 2.2em;
+            font-weight: 700;
+            margin: 20px 0 10px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .subtitle {
+            font-size: 1.2em;
+            font-weight: 300;
+            opacity: 0.9;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+            word-wrap: break-word; /* 关键：允许长单词换行 */
+            white-space: pre-line; /* 保留换行符 */
+            text-align: center; /* 居中对齐 */
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        .feature-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.1);
+        }
+        .feature-icon {
+            font-size: 2.5em;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        .feature-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .feature-desc {
+            color: #666;
+            font-size: 0.9em;
+            line-height: 1.5;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .header-section {
+                padding: 30px 15px;
+            }
+            .title-main {
+                font-size: 1.8em;
+            }
+            .subtitle {
+                font-size: 1em;
+                padding: 0 15px;
+            }
+            .features-grid {
+                grid-template-columns: 1fr;
+                padding: 20px;
+                gap: 15px;
+            }
+            .feature-card {
+                padding: 20px;
+            }
+            .feature-icon {
+                font-size: 2em;
+            }
+            .logo-img {
+                max-width: 150px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .title-main {
+                font-size: 1.5em;
+            }
+            .subtitle {
+                font-size: 0.9em;
+            }
+            .feature-card {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header-section">
+            <div class="logo-container">
+                <img id="logo-img" src="https://img.picui.cn/free/2024/09/25/66f3cdc149a78.png" alt="NVIDIA-TRAVEL Logo" class="logo-img">
+            </div>
+            <h1 class="title-main">😀 欢迎来到"NVIDIA-TRAVEL"</h1>
+            <p class="subtitle">您的专属旅行伙伴！我们致力于为您提供个性化的旅行规划、陪伴和分享服务，让您的旅程充满乐趣并留下难忘回忆。</p>
+        </div>
+        
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🗺️</div>
+                <h3 class="feature-title">智能旅行规划</h3>
+                <p class="feature-desc">根据您的需求生成详细的旅行计划表，包含行程、交通、住宿等全方位安排</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <h3 class="feature-title">AI智能问答</h3>
+                <p class="feature-desc">基于知识库和网络搜索，为您提供准确的旅游信息和实用建议</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🌤️</div>
+                <h3 class="feature-title">实时天气查询&酒店餐饮搜索</h3>
+                <p class="feature-desc">提供目的地天气预报和附近酒店餐饮，助您合理安排行程</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
     gr.HTML(html_code)
     with gr.Tab("旅行规划助手"):
         # with gr.Group():
@@ -1333,8 +1821,10 @@ with gr.Blocks(css=css) as demo:
             chat_destination = gr.Textbox(label="输入旅游目的地", placeholder="请你输入想去的地方")
             gr.Examples(["合肥", "郑州", "西安", "北京", "广州", "大连","厦门","南京", "大理", "上海","成都","黄山"], chat_destination, label='目的地示例',examples_per_page= 12)
         
-        with gr.Accordion("个性化选择（天数，行程风格，预算，随行人数）", open=False):
+        with gr.Accordion("个性化选择（天数，行程风格，预算，随行人数）", open=True):
             with gr.Group():
+                with gr.Row():  # 新增一行用于日期选择
+                    chat_start_date = gr.DateTime(label="出发时间",interactive=True,elem_id="datetime-input")  # 显式设置为True（可选）   # 日期+时间选择(label="选择出发日期", value=None)  # 默认为空，用户必须选择
                 with gr.Row():
                     chat_days = gr.Slider(minimum=1, maximum=10, step=1, value=3, label='旅游天数')
                     chat_style = gr.Radio(choices=['紧凑', '适中', '休闲'], value='适中', label='行程风格',elem_id="button")
@@ -1346,249 +1836,205 @@ with gr.Blocks(css=css) as demo:
         llm_submit_tab = gr.Button("发送", visible=True,elem_id="button")
         chatbot = gr.Chatbot([], elem_id="chat-box", label="聊天窗口", height=600)
         planner_output_md = gr.Markdown(label="规划结果")
-        # 按钮
-        # llm_submit_tab = gr.Button("发送", visible=True,variant="primary")
-        # # 问题样例
-        # gr.Examples(["合肥", "郑州", "西安", "北京", "广州", "大连"], chat_departure)
-        # gr.Examples(["北京", "南京", "大理", "上海", "东京", "巴黎"], chat_destination
-        
+
         # 添加地图显示区域
         route_map_html = gr.HTML(label="地图", elem_id="route-maps")
         
         # 按钮出发逻辑
-        llm_submit_tab.click(fn=chat, inputs=[chat_destination, chatbot, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other], outputs=[ chat_destination,chatbot, route_map_html])
+        llm_submit_tab.click(fn=chat, inputs=[chat_destination, chatbot, chat_departure, chat_days, chat_style, chat_budget, chat_people, chat_other,chat_start_date], outputs=[ chat_destination,chatbot, route_map_html])
 
     def respond(message, chat_history, use_kb):
             return process_question(chat_history, use_kb, message)
     def clear_chat(chat_history):
         return clear_history(chat_history)    
-    with gr.Tab("旅游问答助手"):
-        with gr.Tab("知识库问答"):
-            with gr.Row():
-                with gr.Column():
-                    msg = gr.Textbox(lines=2,placeholder="请输入您的问题（旅游景点、活动、餐饮、住宿、购物、推荐行程、小贴士等实用信息）",label="提供景点推荐、活动安排、餐饮、住宿、购物、行程推荐、实用小贴士等实用信息")
-                    with gr.Row():
-                        whether_rag = gr.Radio(choices=['是','否'], value='否', label='是否启用RAG')
-                    with gr.Row():
-                        submit_button = gr.Button("发送", elem_id="button")
-                        clear_button = gr.Button("清除对话", elem_id="button")
-            
-                    # 问题样例
-                    gr.Examples(["我想去香港玩，你有什么推荐的吗？","在杭州，哪些家餐馆可以推荐去的？","我计划暑假带家人去云南旅游，请问有哪些必游的自然风光和民族文化景点？","下个月我将在西安，想了解秦始皇兵马俑开通时间以及交通信息","第一次去西藏旅游，需要注意哪些高原反应的预防措施？","去三亚度假，想要住海景酒店，性价比高的选择有哪些？","去澳门旅游的最佳时间是什么时候？","计划一次五天四夜的西安深度游，怎样安排行程比较合理，能覆盖主要景点？"], msg)
-            
-                with gr.Column():
-                    chatbot = gr.Chatbot(label="聊天记录",height=521)
-        submit_button.click(respond, [msg, chatbot, whether_rag], [msg, chatbot])
-        clear_button.click(clear_chat, chatbot, chatbot)        
-        # Weather_APP_KEY = os.environ.get("Weather_APP_KEY")
-        Weather_APP_KEY = '797ab5e76cdf458b82b1283e100b9a5b'
-        # def weather_process(location):
-        #         api_key = Weather_APP_KEY  # 替换成你的API密钥  
-        #         location_data = get_location_data(location, api_key)
-        #         # print(location_data)
-        #         if not location_data:
-        #             return "无法获取城市信息，请检查您的输入。"
-        #         location_id = location_data.get('location', [{}])[0].get('id')
-        #         # print(location_id)
-        #         if not location_id:
-        #             return "无法从城市信息中获取ID。"
-        #         weather_data = get_weather_forecast(location_id, api_key)
-        #         if not weather_data or weather_data.get('code') != '200':
-        #             return "无法获取天气预报，请检查您的输入和API密钥。"
-        #         # 构建HTML表格来展示天气数据
-        #         html_content = "<table>"
-        #         html_content += "<tr>"
-        #         html_content += "<th>预报日期</th>"
-        #         html_content += "<th>白天天气</th>"
-        #         html_content += "<th>夜间天气</th>"
-        #         html_content += "<th>最高温度</th>"
-        #         html_content += "<th>最低温度</th>"
-        #         html_content += "<th>白天风向</th>"
-        #         html_content += "<th>白天风力等级</th>"
-        #         html_content += "<th>白天风速</th>"
-        #         html_content += "<th>夜间风向</th>"
-        #         html_content += "<th>夜间风力等级</th>"
-        #         html_content += "<th>夜间风速</th>"
-        #         html_content += "<th>总降水量</th>"
-        #         html_content += "<th>紫外线强度</th>"
-        #         html_content += "<th>相对湿度</th>"
-        #         html_content += "</tr>"
+    # with gr.Tab("旅游问答助手"):
+    with gr.Tab("知识库问答"):
+        with gr.Row():
+            with gr.Column():
+                msg = gr.Textbox(lines=2,placeholder="请输入您的问题（旅游景点、活动、餐饮、住宿、购物、推荐行程、小贴士等实用信息）",label="提供景点推荐、活动安排、餐饮、住宿、购物、行程推荐、实用小贴士等实用信息")
+                with gr.Row():
+                    whether_rag = gr.Radio(choices=['是','否'], value='否', label='是否启用RAG')
+                with gr.Row():
+                    submit_button = gr.Button("发送", elem_id="button")
+                    clear_button = gr.Button("清除对话", elem_id="button")
+        
+                # 问题样例
+                gr.Examples(["我想去香港玩，你有什么推荐的吗？","在杭州，哪些家餐馆可以推荐去的？","我计划暑假带家人去云南旅游，请问有哪些必游的自然风光和民族文化景点？","下个月我将在西安，想了解秦始皇兵马俑开通时间以及交通信息","第一次去西藏旅游，需要注意哪些高原反应的预防措施？","去三亚度假，想要住海景酒店，性价比高的选择有哪些？","去澳门旅游的最佳时间是什么时候？","计划一次五天四夜的西安深度游，怎样安排行程比较合理，能覆盖主要景点？"], msg)
+        
+            with gr.Column():
+                chatbot = gr.Chatbot(label="聊天记录",height=521)
+    submit_button.click(respond, [msg, chatbot, whether_rag], [msg, chatbot])
+    clear_button.click(clear_chat, chatbot, chatbot)        
 
-        #         for day in weather_data.get('daily', []):
-        #             html_content += f"<tr>"
-        #             html_content += f"<td>{day['fxDate']}</td>"
-        #             html_content += f"<td>{day['textDay']} ({day['iconDay']})</td>"
-        #             html_content += f"<td>{day['textNight']} ({day['iconNight']})</td>"
-        #             html_content += f"<td>{day['tempMax']}°C</td>"
-        #             html_content += f"<td>{day['tempMin']}°C</td>"
-        #             html_content += f"<td>{day.get('windDirDay', '未知')}</td>"
-        #             html_content += f"<td>{day.get('windScaleDay', '未知')}</td>"
-        #             html_content += f"<td>{day.get('windSpeedDay', '未知')} km/h</td>"
-        #             html_content += f"<td>{day.get('windDirNight', '未知')}</td>"
-        #             html_content += f"<td>{day.get('windScaleNight', '未知')}</td>"
-        #             html_content += f"<td>{day.get('windSpeedNight', '未知')} km/h</td>"
-        #             html_content += f"<td>{day.get('precip', '未知')} mm</td>"
-        #             html_content += f"<td>{day.get('uvIndex', '未知')}</td>"
-        #             html_content += f"<td>{day.get('humidity', '未知')}%</td>"
-        #             html_content += "</tr>"
-        #         html_content += "</table>"  
-  
-        #         return HTML(html_content)
-        def weather_process(location):
-            api_key = Weather_APP_KEY  # 替换成你的API密钥
-            location_data = get_location_data(location, api_key)
+    def weather_process(location):
+        api_key = Weather_APP_KEY  # 替换成你的API密钥
+        location_data = get_location_data(location, api_key)
 
-            # 兜底城市名（用于下游穿搭）
-            city_name = (location or "").strip()
+        # 兜底城市名（用于下游穿搭）
+        city_name = (location or "").strip()
 
-            # --- 原有：取城市ID ---
-            if not location_data:
-                # 返回：HTML说明, 温度(None), 现象(""), 城市("")
-                return "<div style='color:#c00'>无法获取城市信息，请检查您的输入。</div>", None, "", ""
+        # --- 原有：取城市ID ---
+        if not location_data:
+            # 返回：HTML说明, 温度(None), 现象(""), 城市("")
+            return "<div style='color:#c00'>无法获取城市信息，请检查您的输入。</div>", None, "", ""
 
-            loc0 = (location_data.get('location') or [{}])[0]
-            location_id = loc0.get('id')
-            city_name = loc0.get('name') or city_name
+        loc0 = (location_data.get('location') or [{}])[0]
+        location_id = loc0.get('id')
+        city_name = loc0.get('name') or city_name
 
-            if not location_id:
-                return "<div style='color:#c00'>无法从城市信息中获取ID。</div>", None, "", city_name
+        if not location_id:
+            return "<div style='color:#c00'>无法从城市信息中获取ID。</div>", None, "", city_name
 
-            # --- 原有：取7天预报 ---
-            weather_data = get_weather_forecast(location_id, api_key)
-            if not weather_data or weather_data.get('code') != '200':
-                return "<div style='color:#c00'>无法获取天气预报，请检查您的输入和API密钥。</div>", None, "", city_name
+        # --- 原有：取7天预报 ---
+        weather_data = get_weather_forecast(location_id, api_key)
+        if not weather_data or weather_data.get('code') != '200':
+            return "<div style='color:#c00'>无法获取天气预报，请检查您的输入和API密钥。</div>", None, "", city_name
 
-            # --- 原有：构建HTML表格 ---
-            html_content = "<table>"
-            html_content += "<tr>"
-            html_content += "<th>预报日期</th>"
-            html_content += "<th>白天天气</th>"
-            html_content += "<th>夜间天气</th>"
-            html_content += "<th>最高温度</th>"
-            html_content += "<th>最低温度</th>"
-            html_content += "<th>白天风向</th>"
-            html_content += "<th>白天风力等级</th>"
-            html_content += "<th>白天风速</th>"
-            html_content += "<th>夜间风向</th>"
-            html_content += "<th>夜间风力等级</th>"
-            html_content += "<th>夜间风速</th>"
-            html_content += "<th>总降水量</th>"
-            html_content += "<th>紫外线强度</th>"
-            html_content += "<th>相对湿度</th>"
+        # --- 原有：构建HTML表格 ---
+        html_content = "<table>"
+        html_content += "<tr>"
+        html_content += "<th>预报日期</th>"
+        html_content += "<th>白天天气</th>"
+        html_content += "<th>夜间天气</th>"
+        html_content += "<th>最高温度</th>"
+        html_content += "<th>最低温度</th>"
+        html_content += "<th>白天风向</th>"
+        html_content += "<th>白天风力等级</th>"
+        html_content += "<th>白天风速</th>"
+        html_content += "<th>夜间风向</th>"
+        html_content += "<th>夜间风力等级</th>"
+        html_content += "<th>夜间风速</th>"
+        html_content += "<th>总降水量</th>"
+        html_content += "<th>紫外线强度</th>"
+        html_content += "<th>相对湿度</th>"
+        html_content += "</tr>"
+
+        daily_list = weather_data.get('daily', []) or []
+        for day in daily_list:
+            html_content += f"<tr>"
+            html_content += f"<td>{day.get('fxDate', '')}</td>"
+            html_content += f"<td>{day.get('textDay', '')} ({day.get('iconDay', '')})</td>"
+            html_content += f"<td>{day.get('textNight', '')} ({day.get('iconNight', '')})</td>"
+            html_content += f"<td>{day.get('tempMax', '')}°C</td>"
+            html_content += f"<td>{day.get('tempMin', '')}°C</td>"
+            html_content += f"<td>{day.get('windDirDay', '未知')}</td>"
+            html_content += f"<td>{day.get('windScaleDay', '未知')}</td>"
+            html_content += f"<td>{day.get('windSpeedDay', '未知')} km/h</td>"
+            html_content += f"<td>{day.get('windDirNight', '未知')}</td>"
+            html_content += f"<td>{day.get('windScaleNight', '未知')}</td>"
+            html_content += f"<td>{day.get('windSpeedNight', '未知')} km/h</td>"
+            html_content += f"<td>{day.get('precip', '未知')} mm</td>"
+            html_content += f"<td>{day.get('uvIndex', '未知')}</td>"
+            html_content += f"<td>{day.get('humidity', '未知')}%</td>"
             html_content += "</tr>"
+        html_content += "</table>"
 
-            daily_list = weather_data.get('daily', []) or []
-            for day in daily_list:
-                html_content += f"<tr>"
-                html_content += f"<td>{day.get('fxDate', '')}</td>"
-                html_content += f"<td>{day.get('textDay', '')} ({day.get('iconDay', '')})</td>"
-                html_content += f"<td>{day.get('textNight', '')} ({day.get('iconNight', '')})</td>"
-                html_content += f"<td>{day.get('tempMax', '')}°C</td>"
-                html_content += f"<td>{day.get('tempMin', '')}°C</td>"
-                html_content += f"<td>{day.get('windDirDay', '未知')}</td>"
-                html_content += f"<td>{day.get('windScaleDay', '未知')}</td>"
-                html_content += f"<td>{day.get('windSpeedDay', '未知')} km/h</td>"
-                html_content += f"<td>{day.get('windDirNight', '未知')}</td>"
-                html_content += f"<td>{day.get('windScaleNight', '未知')}</td>"
-                html_content += f"<td>{day.get('windSpeedNight', '未知')} km/h</td>"
-                html_content += f"<td>{day.get('precip', '未知')} mm</td>"
-                html_content += f"<td>{day.get('uvIndex', '未知')}</td>"
-                html_content += f"<td>{day.get('humidity', '未知')}%</td>"
-                html_content += "</tr>"
-            html_content += "</table>"
+        # --- 新增：为“穿搭”准备结构化天气（当天） ---
+        # 取列表第一天为“当前/最近”的参考；也可以精确匹配今天日期
+        today = daily_list[0] if daily_list else {}
+        # 温度：取最高/最低的均值作为穿搭参考温度
+        temp_for_outfit = None
+        try:
+            tmax = float(today.get('tempMax'))
+            tmin = float(today.get('tempMin'))
+            temp_for_outfit = round((tmax + tmin) / 2.0, 1)
+        except Exception:
+            pass
+        # 天气现象优先白天，没有则用夜间
+        cond_for_outfit = (today.get('textDay') or today.get('textNight') or "").strip()
 
-            # --- 新增：为“穿搭”准备结构化天气（当天） ---
-            # 取列表第一天为“当前/最近”的参考；也可以精确匹配今天日期
-            today = daily_list[0] if daily_list else {}
-            # 温度：取最高/最低的均值作为穿搭参考温度
-            temp_for_outfit = None
-            try:
-                tmax = float(today.get('tempMax'))
-                tmin = float(today.get('tempMin'))
-                temp_for_outfit = round((tmax + tmin) / 2.0, 1)
-            except Exception:
-                pass
-            # 天气现象优先白天，没有则用夜间
-            cond_for_outfit = (today.get('textDay') or today.get('textNight') or "").strip()
-
-            # 返回 4 个值：HTML字符串、温度、现象、城市
-            return html_content, temp_for_outfit, cond_for_outfit, city_name
+        # 返回 4 个值：HTML字符串、温度、现象、城市
+        return html_content, temp_for_outfit, cond_for_outfit, city_name
 
 
-        def clear_history_audio(history):
-            history.clear()
-            return history
+    def clear_history_audio(history):
+        history.clear()
+        return history
 
-        def clear_chat_audio(chat_history):
-            return clear_history_audio(chat_history)
+    def clear_chat_audio(chat_history):
+        return clear_history_audio(chat_history)
 
-        with gr.Tab("附近查询&联网搜索&天气查询"):
-            
-            with gr.Row():
-                with gr.Column():
-                    query_near = gr.Textbox(label="查询附近的餐饮、酒店等", placeholder="例如：合肥市高新区中国声谷产业园附近的美食")
-                    result = gr.Textbox(label="查询结果", lines=2)
-                    submit_btn = gr.Button("查询附近的餐饮、酒店等",elem_id="button")
-                    gr.Examples(["合肥市高新区中国声谷产业园附近的美食", "北京三里屯附近的咖啡", "南京市玄武区新街口附近的甜品店", "上海浦东新区陆家嘴附近的热门餐厅", "武汉市光谷步行街附近的火锅店", "广州市天河区珠江新城附近的酒店"], query_near)
+    with gr.Tab("天气查询&酒店餐饮搜索"):
+        
+        with gr.Row():
+            with gr.Column():
+                query_near = gr.Textbox(label="查询附近的餐饮、酒店等", placeholder="例如：合肥市高新区中国声谷产业园附近的美食")
+                result = gr.Textbox(label="查询结果", lines=2)
+                submit_btn = gr.Button("查询附近的餐饮、酒店等",elem_id="button")
+                gr.Examples(["合肥市高新区中国声谷产业园附近的美食", "北京三里屯附近的咖啡", "南京市玄武区新街口附近的甜品店", "上海浦东新区陆家嘴附近的热门餐厅", "武汉市光谷步行街附近的火锅店", "广州市天河区珠江新城附近的酒店"], query_near)
 
-                    submit_btn.click(process_request, inputs=[query_near], outputs=[result])
+                # 结果可视化区域（就在 result 下面加）
+                # nearby_cards_html = gr.HTML(label="结果可视化展示")
 
-                with gr.Column():
-                    query_network = gr.Textbox(label="联网搜索问题", placeholder="例如：秦始皇兵马俑开放时间")
-                    result_network = gr.Textbox(label="搜索结果", lines=2)
-                    cards_html = gr.HTML(label="相关图文卡片")
+                # 继续保留你原来的文本结果：
+                submit_btn.click(process_request, inputs=[query_near], outputs=[result])
 
-
-                    submit_btn_network = gr.Button("联网搜索",elem_id="button")
-                    gr.Examples(["秦始皇兵马俑开放时间", "合肥有哪些美食", "北京故宫开放时间", "黄山景点介绍", "上海迪士尼门票需要多少钱"], query_network)
-                    evt_net = submit_btn_network.click(process_network, inputs=[query_network], outputs=[result_network])
-                    evt_net.then(
-                        fn=build_info_cards,
-                        inputs=[query_network, result_network],   # 这里我也把搜索结果传进来，后续你想用也有
-                        outputs=[cards_html]
-                    )
-
-            weather_input = gr.Textbox(label="请输入城市名查询天气", placeholder="例如：北京")
-            weather_output = gr.HTML(value="", label="天气查询结果")
-            # ➕ 新增：承接城市/温度/天气现象
-            w_city_state = gr.State()   # str
-            w_temp_state = gr.State()   # float
-            w_cond_state = gr.State()   # str
-            query_button = gr.Button("查询天气",elem_id="button")
-            query_button.click(
-                weather_process,
-                inputs=[weather_input],
-                outputs=[weather_output, w_temp_state, w_cond_state, w_city_state]
-            )
+            with gr.Column():
+                query_network = gr.Textbox(label="联网搜索问题", placeholder="例如：秦始皇兵马俑开放时间")
+                result_network = gr.Textbox(label="搜索结果", lines=2)
+                cards_html = gr.HTML(label="相关图文卡片")
 
 
-            with gr.Row():
-                outfit_btn = gr.Button("基于当前天气生成穿搭图", variant="primary")
-            with gr.Row():
-                men_gallery   = gr.Gallery(label="男士穿搭", columns=4, rows=2, height=420, interactive=False)
-                women_gallery = gr.Gallery(label="女士穿搭", columns=4, rows=2, height=420, interactive=False)
-            outfit_note = gr.Markdown("")   # 展示摘要与检索词
+                # submit_btn_network = gr.Button("联网搜索",elem_id="button")
+                btn_aiq = gr.Button("用 AIQ 联网搜索", elem_id="button")
+                gr.Examples(["秦始皇兵马俑开放时间", "合肥有哪些美食", "北京故宫开放时间", "黄山景点介绍", "上海迪士尼门票需要多少钱"], query_network)
+                # evt_net = submit_btn_network.click(process_network, inputs=[query_network], outputs=[result_network])
+                # evt_net.then(
+                #     fn=build_info_cards,
+                #     inputs=[query_network, result_network],   # 这里我也把搜索结果传进来，后续你想用也有
+                #     outputs=[cards_html]
+                # )
 
-            def gen_outfit_from_weather_state(w_city, w_temp, w_cond, fallback_city):
-                city = (w_city or fallback_city or "上海").strip()
-                if w_temp is None or not w_cond:
-                    return [], [], f"⚠️ 请先查询天气后再生成穿搭图。"
+                aiq_cfg_state = gr.State(AIQ_WORKFLOW_CFG)
 
-                men, women, summary, mq, wq = outfit_reco_by_weather(float(w_temp), str(w_cond), city=city)
-                if not men and not women:
-                    return [], [], f"⚠️ 未获取到穿搭图片：{city} {w_temp}℃ · {w_cond}\n\n检索：`{mq}` / `{wq}`"
-                note = f"**{city} · {w_temp:.0f}℃ · {w_cond}**\n\n男款检索：`{mq}`\n\n女款检索：`{wq}`"
-                return men, women, note
+                # 只把文本结果写回“搜索结果”；如果你有 cards_html，可一并输出
+                evt_net = btn_aiq.click(
+                    fn=process_network_aiq,
+                    inputs=[query_network, aiq_cfg_state],
+                    outputs=[result_network]           # 如果要连带卡片：outputs=[result_network, cards_html]
+                )
+                evt_net.then(
+                    fn=build_info_cards,
+                    inputs=[query_network, result_network],   # 这里我也把搜索结果传进来，后续你想用也有
+                    outputs=[cards_html]
+                )
 
-            outfit_btn.click(
-                fn=gen_outfit_from_weather_state,
-                inputs=[w_city_state, w_temp_state, w_cond_state, weather_input],  # fallback 城市用输入框
-                outputs=[men_gallery, women_gallery, outfit_note]
-            )
+        weather_input = gr.Textbox(label="请输入城市名查询天气", placeholder="例如：北京")
+        weather_output = gr.HTML(value="", label="天气查询结果")
+        # ➕ 新增：承接城市/温度/天气现象
+        w_city_state = gr.State()   # str
+        w_temp_state = gr.State()   # float
+        w_cond_state = gr.State()   # str
+        query_button = gr.Button("查询天气",elem_id="button")
+        query_button.click(
+            weather_process,
+            inputs=[weather_input],
+            outputs=[weather_output, w_temp_state, w_cond_state, w_city_state]
+        )
 
+        with gr.Row():
+            outfit_btn = gr.Button("基于当前天气生成穿搭图", variant="primary")
+        with gr.Row():
+            men_gallery   = gr.Gallery(label="男士穿搭", columns=4, rows=2, height=420, interactive=False)
+            women_gallery = gr.Gallery(label="女士穿搭", columns=4, rows=2, height=420, interactive=False)
+        outfit_note = gr.Markdown("")   # 展示摘要与检索词
 
+        def gen_outfit_from_weather_state(w_city, w_temp, w_cond, fallback_city):
+            city = (w_city or fallback_city or "上海").strip()
+            if w_temp is None or not w_cond:
+                return [], [], f"⚠️ 请先查询天气后再生成穿搭图。"
 
+            men, women, summary, mq, wq = outfit_reco_by_weather(float(w_temp), str(w_cond), city=city)
+            if not men and not women:
+                return [], [], f"⚠️ 未获取到穿搭图片：{city} {w_temp}℃ · {w_cond}\n\n检索：`{mq}` / `{wq}`"
+            note = f"**{city} · {w_temp:.0f}℃ · {w_cond}**\n\n男款检索：`{mq}`\n\n女款检索：`{wq}`"
+            return men, women, note
 
+        outfit_btn.click(
+            fn=gen_outfit_from_weather_state,
+            inputs=[w_city_state, w_temp_state, w_cond_state, weather_input],  # fallback 城市用输入框
+            outputs=[men_gallery, women_gallery, outfit_note]
+        )
         
 if __name__ == "__main__":
     demo.queue().launch(share=True)
