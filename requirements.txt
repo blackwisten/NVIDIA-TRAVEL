@@ -1,5 +1,3 @@
-spark_ai_python
-dwspark
 cffi
 gevent
 greenlet

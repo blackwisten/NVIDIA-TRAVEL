@@ -1,5 +1,5 @@
-version: '3.8'
-service:
+
+services:
   app:
     build: .
     container_name: nvidia_travel
