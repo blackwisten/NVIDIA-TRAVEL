@@ -107,9 +107,9 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
   <img src="pics/show3.jpg"/> 
 </div>
 
-4.  **旅行助手旅游规划**
+4.  **根据天气推荐穿搭，联网搜索，附近餐饮，酒店查询，天气查询**
 <div align="center">
-  <img src="pics/show4.png"/> 
+  <img src="pics/show2.png"/> 
 </div>
 
 ## 🙏 致谢
