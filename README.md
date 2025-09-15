@@ -76,7 +76,7 @@ NVIDIA-TRAVEL，以英伟达强大AI算力为底座，让智能真正融入旅�
     amap_key=您的高德地图API密钥
     dashscope_api_key=您的阿里云百炼平台API密钥
     TAVILY_API_KEY=您的tavily API密钥
-    #(请将”您的xxxAPI密钥“替换为实际从阿里云获取的API Key)
+    #(请将”您的xxxAPI密钥“替换为实际从各大平台获取的API Key)
     ```
 
 4.  **启动服务**:
