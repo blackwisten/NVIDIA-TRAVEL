@@ -49,13 +49,7 @@ AIQ_WORKFLOW_CFG = os.environ.get(
 
 
 dashscope.api_key = os.environ.get("dashscope_api_key")
-os.environ["amap_key"] = "3cf27a51685ddf02dfb220fe93c036af"
-os.environ["AMAP_WEB_KEY"] = "1640e75fcacc07af28cb0a8edd24eaa4"
-os.environ["AMAP_JS_SEC"] = "3f96ffb6ef836e956a585f9eee58ee13"
-os.environ['TAVILY_API_KEY'] = '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'
-os.environ['PEXELS_API_KEY']="ZRRsieLqDKsRxzxNH97mN7NlGgEoIDFSzdYKB42S4Tzfc8BWtVzKpWz3"
 PEXELS_API_KEY=os.environ.get("PEXELS_API_KEY")
-Weather_APP_KEY = '797ab5e76cdf458b82b1283e100b9a5b'
 GAODE_API_KEY=os.environ.get("amap_key")
 BAILIAN_API_KEY=os.environ.get("DASHSCOPE_API_KEY", "")
 # 初始化模型
