@@ -491,7 +491,7 @@ def llm(query, history=[], user_stop_words=[]):
         return str(e)
 
 # Travily 搜索引擎
-os.environ['TAVILY_API_KEY'] = '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'
+os.environ['TAVILY_API_KEY'] = ''
 tavily = TavilySearchResults(max_results=5)
 tavily.description = '这是一个类似谷歌和百度的搜索引擎，搜索知识、天气、股票、电影、小说、百科等都是支持的哦，如果你不确定就应该搜索一下，谢谢！'
 
@@ -1036,7 +1036,7 @@ with gr.Blocks(css=css) as demo:
         clear_button.click(clear_history, chatbot_qa, chatbot_qa)        
 
     # Weather API Key
-    Weather_APP_KEY = '797ab5e76cdf458b82b1283e100b9a5b'
+    Weather_APP_KEY = ''
     
     def weather_process(location):
         api_key = Weather_APP_KEY  # 替换成你的API密钥  
